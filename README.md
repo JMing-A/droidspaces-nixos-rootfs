@@ -81,6 +81,27 @@ A partial run is allowed: if you build only some variants, `rootfs.json` is rege
 still requires every build job to succeed, so a failed variant blocks publishing — rerun the
 workflow with a narrower `variants` value if you need to ship the healthy ones.
 
+## Known upstream breakage
+
+`github:ravindu644/Droidspaces-OSS` at `main` does **not** evaluate as of this writing. Commit
+`bf2aa0b` (2026-09-12) moved journald config to `services.journald.settings.Journal`, an option
+that does not exist in the pinned nixpkgs `c6e5ca3`, so every variant dies with:
+
+```
+error: The option `services.journald.settings' does not exist.
+```
+
+Until that is fixed upstream, pin `flake_ref` to a tag that still uses `services.journald.extraConfig`:
+
+| ref | `services.journald` option used | usable |
+|---|---|---|
+| `v6.5.5` | `extraConfig` | yes |
+| `v6.6.0` and later, including `main` | `settings.Journal` | **no**, evaluation error |
+
+So the working invocation today is `flake_ref = v6.5.5`. Revert to `main` once upstream repairs the
+option. This is a defect in the flake, not in this pipeline: the pipeline reaches the evaluation
+stage, resolves the flake, and fails inside `config.system.build.tarball`.
+
 ## Building locally
 
 ```sh

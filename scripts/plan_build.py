@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -80,7 +81,12 @@ def main() -> int:
             tag = f"v{tag}"
     else:
         tag = datetime.now(timezone.utc).strftime("v%Y%m%d-%H%M%S")
-    build_date = tag[1:].split("-")[0]
+    if not re.fullmatch(r"v[A-Za-z0-9][A-Za-z0-9._-]*", tag):
+        fail(f"tag '{tag}' contains characters that are not safe in a release tag")
+    # build_date keeps the file name shape the Droidspaces app expects; an
+    # arbitrary tag (e.g. a smoke run) falls back to today's UTC date.
+    head = tag[1:].split("-")[0]
+    build_date = head if re.fullmatch(r"\d{8}", head) else datetime.now(timezone.utc).strftime("%Y%m%d")
 
     flake_repo = args.flake_repo.strip().rstrip("/")
     flake_ref = (args.flake_ref or "main").strip()
