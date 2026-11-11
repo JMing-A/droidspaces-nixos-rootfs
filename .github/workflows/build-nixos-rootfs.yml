@@ -89,6 +89,16 @@ jobs:
             --flake-ref "$INPUT_FLAKE_REF" \
             --output "$GITHUB_OUTPUT"
 
+      # The release must exist before the build matrix starts uploading into
+      # it. Creating it here also gives the build jobs a single destination
+      # instead of an artifact round trip.
+      - name: Create the release early
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: |
+          python3 scripts/make_release.py --tag "$TAG" --repo "$GITHUB_REPOSITORY"
+
       - name: Summary
         run: |
           {
@@ -192,13 +202,27 @@ jobs:
           ls -lh "$target"
           sha256sum "$target" | tee "dist/SHA256SUMS-${ARCH}-${FILE}.txt"
 
-      - name: Upload the tarball
-        uses: actions/upload-artifact@v4
-        with:
-          name: rootfs-${{ matrix.arch }}-${{ matrix.variant_id }}
-          path: dist/*
-          if-no-files-found: error
-          retention-days: 7
+      # Upload straight to the release instead of staging an artifact first.
+      # The old flow moved the same ~200 MiB twice (artifact upload, then
+      # artifact download in the release job, then release upload), which was
+      # the slowest part of the run. Now the tarball is transferred once.
+      #
+      # The release must exist before the parallel build jobs finish, so the
+      # plan job creates an empty one up front. --clobber makes a rerun of the
+      # same tag replace assets rather than fail.
+      - name: Upload the tarball to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(dist/*.tar.xz dist/SHA256SUMS-*.txt)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "nothing to upload" >&2
+            exit 1
+          fi
+          gh release upload "$TAG" --clobber "${files[@]}"
 
   release:
     name: Release
@@ -211,46 +235,34 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
 
-      - name: Download every built tarball
-        uses: actions/download-artifact@v4
-        with:
-          path: dist
-          pattern: rootfs-*
-          merge-multiple: true
-
       - name: Generate rootfs.json
         env:
           TAG: ${{ needs.plan.outputs.tag }}
           BUILD_DATE: ${{ needs.plan.outputs.build_date }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          ls -lh dist
+          # The build jobs uploaded their tarballs directly to the release, so
+          # there is nothing in dist/. Read the asset list back from the API
+          # instead of re-downloading ~400 MiB just to hash it.
           python3 scripts/gen_rootfs_json.py \
-            --dist dist \
             --out rootfs.json \
             --repo "$GITHUB_REPOSITORY" \
-            --version "$TAG" \
+            --tag "$TAG" \
             --build-date "$BUILD_DATE" \
             --allow-partial
 
-      - name: Create the release
+      - name: Finalise the release notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.plan.outputs.tag }}
-          FLAKE_REPO: ${{ inputs.flake_repo }}
-          FLAKE_REF: ${{ inputs.flake_ref }}
           FLAKE_BASE: ${{ needs.plan.outputs.flake_base }}
+          FLAKE_REF: ${{ inputs.flake_ref }}
           RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
-          mapfile -t assets < <(find dist -type f -name '*.tar.xz' -print | sort)
-          mapfile -t sums < <(find dist -type f -name 'SHA256SUMS-*.txt' -print | sort)
-          if [ "${#assets[@]}" -eq 0 ]; then
-            echo "no tarballs to release" >&2
-            exit 1
-          fi
-          # Default source is this repo at the triggering commit; report that
-          # rather than the empty override inputs.
+          # Assets are already on the release; this step only replaces the
+          # placeholder body written by the plan job with the final summary.
           python3 scripts/write_notes.py \
             --flake "$FLAKE_BASE" \
             --ref "$FLAKE_REF" \
@@ -259,17 +271,7 @@ jobs:
             --rootfs-json rootfs.json \
             --out notes.md
           cat notes.md >> "$GITHUB_STEP_SUMMARY"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "release $TAG exists, replacing its assets"
-            gh release upload "$TAG" --clobber "${assets[@]}" "${sums[@]}"
-            gh release edit "$TAG" --notes-file notes.md --latest
-          else
-            gh release create "$TAG" \
-              --title "NixOS rootfs $TAG" \
-              --notes-file notes.md \
-              --latest \
-              "${assets[@]}" "${sums[@]}"
-          fi
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes.md --latest
 
       - name: Commit the regenerated rootfs.json
         env:
