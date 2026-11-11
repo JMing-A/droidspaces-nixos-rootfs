@@ -137,6 +137,7 @@ jobs:
           nix build \
             --extra-experimental-features 'nix-command flakes' \
             --accept-flake-config \
+            --no-write-lock-file \
             --keep-going \
             --print-build-logs \
             --out-link ./result \

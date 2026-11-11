@@ -4,3 +4,4 @@
 /.release/
 /AGENTS.local.md
 __pycache__/
+flake.lock

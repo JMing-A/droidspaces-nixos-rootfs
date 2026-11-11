@@ -48,19 +48,24 @@ def select(items: list, selector: str, label: str, key: str) -> list:
 
 
 def default_flake_reference() -> str:
-    """github:<owner>/<repo>/<sha>.
+    """The checked-out work tree, as a plain path flake.
 
-    Pinning the commit that triggered the run keeps a build reproducible: later
-    pushes cannot change what this run actually built.
+    A path reference is deliberate. `github:owner/repo/<rev>` is a *locked*
+    input: nix must write flake.lock back into the store copy, which is
+    read-only, and the build dies with
+    "cannot write modified lock file of flake ... (use --no-write-lock-file)".
+    Building from the path that actions/checkout already produced avoids the
+    whole problem: the work tree is writable, the lock file lands next to the
+    sources, and the revision being built is still exactly the one that
+    triggered the run because nothing else can touch that work tree.
     """
-    repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
-    sha = os.environ.get("GITHUB_SHA", "").strip()
-    if not repo or not sha:
+    workspace = os.environ.get("GITHUB_WORKSPACE", "").strip()
+    if not workspace:
         fail(
-            "flake_repo is empty and GITHUB_REPOSITORY/GITHUB_SHA are not set; "
+            "flake_repo is empty and GITHUB_WORKSPACE is not set; "
             "pass --flake-repo (and optionally --flake-ref) explicitly"
         )
-    return f"github:{repo}/{sha}"
+    return f"path:{workspace}"
 
 
 def join_flake(repo: str, ref: str) -> str:
@@ -88,6 +93,8 @@ def join_flake(repo: str, ref: str) -> str:
         return f"{repo}/{ref}" if ref else repo
     if not ref:
         return repo
+    if repo.startswith("path:"):
+        fail(f"flake_ref '{ref}' cannot be applied to a path flake '{repo}'")
     separator = "&" if "?" in repo else "?"
     return f"{repo}{separator}ref={ref}"
 
