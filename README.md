@@ -112,6 +112,41 @@ publish  = false
 
 ---
 
+---
+
+## 四之二、内置账号与 SSH
+
+每个变体都**默认开启 SSH 服务**，不需要额外配置：
+
+| 项目 | 值 |
+|---|---|
+| SSH 端口 | `22`（容器内端口，App 侧做端口映射到手机） |
+| 允许登录方式 | 密码登录（`PasswordAuthentication yes`） |
+| root 登录 | 允许（`PermitRootLogin yes`） |
+| PAM | 关闭（容器内无 PAM，用 `/etc/shadow` 原生校验） |
+| 内置普通用户 | `nixos` |
+| 用户密码 | 见仓库所有者提供的部署信息，首次登录后请立刻修改 |
+| 用户属组 | `wheel`、`aid_inet`、`aid_net_raw`、`input`、`video`、`tty` |
+
+关于 `aid_inet` / `aid_net_raw`：这两个是 Android 内核特有的组。不加它们，容器里的普通用户
+**建不了 socket、发不了原始包**，表现就是 `ping` 和 `curl` 全部失败。这是最容易踩的坑。
+
+首次登录后建议改密码：
+
+```sh
+# 以 root，或 nixos（带 sudo）登录后
+passwd nixos
+```
+
+密码以 SHA-512 crypt 哈希形式固化在 `nix/base.nix`，不会以明文渲染进镜像。
+要换密码，重新生成一个哈希并替换该文件里的 `hashedPassword`：
+
+```sh
+openssl passwd -6 -salt nixosrootfs '你的新密码'
+```
+
+仓库里存的是哈希不是明文，但**哈希本身也是敏感信息**，不要贴到公开 issue 里。
+
 ## 五、产出物：rootfs.json
 
 每次发布都会重新生成，**不要手改**。它是一个数组，每一项对应一个压缩包：
