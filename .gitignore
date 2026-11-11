@@ -1,0 +1,6 @@
+/result
+/result-*
+/dist/
+/.release/
+/AGENTS.local.md
+__pycache__/

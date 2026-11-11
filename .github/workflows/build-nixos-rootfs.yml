@@ -1,0 +1,261 @@
+name: Build NixOS rootfs
+
+# Manual only: nothing here runs on push or on a schedule.
+on:
+  workflow_dispatch:
+    inputs:
+      variants:
+        description: "Variants to build: 'all' or comma separated ids (minimal, minimal-v257, minimal-pinned-v257, minimal-v259, finix-experimental)"
+        required: false
+        default: all
+        type: string
+      systems:
+        description: "Systems to build: 'all' or comma separated (aarch64-linux, x86_64-linux)"
+        required: false
+        default: all
+        type: string
+      include_experimental:
+        description: "Include variants marked experimental in variants.json"
+        required: false
+        default: true
+        type: boolean
+      publish:
+        description: "Create the GitHub release and commit the regenerated rootfs.json (leave off for a pure build test)"
+        required: false
+        default: true
+        type: boolean
+      tag:
+        description: "Release tag override (vYYYYMMDD-HHMMSS). Empty means 'now, in UTC'"
+        required: false
+        default: ""
+        type: string
+      flake_repo:
+        description: "Flake holding the NixOS rootfs definitions"
+        required: false
+        default: github:ravindu644/Droidspaces-OSS
+        type: string
+      flake_ref:
+        description: "Ref inside the flake repo"
+        required: false
+        default: main
+        type: string
+
+concurrency:
+  group: build-nixos-rootfs
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      build_date: ${{ steps.plan.outputs.build_date }}
+      flake_base: ${{ steps.plan.outputs.flake_base }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      job_count: ${{ steps.plan.outputs.job_count }}
+      variant_count: ${{ steps.plan.outputs.variant_count }}
+      system_count: ${{ steps.plan.outputs.system_count }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Lint the variant and system tables
+        run: python3 scripts/gen_rootfs_json.py --lint
+
+      - name: Resolve tag and build matrix
+        id: plan
+        env:
+          INPUT_VARIANTS: ${{ inputs.variants }}
+          INPUT_SYSTEMS: ${{ inputs.systems }}
+          INPUT_INCLUDE_EXPERIMENTAL: ${{ inputs.include_experimental }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_FLAKE_REPO: ${{ inputs.flake_repo }}
+          INPUT_FLAKE_REF: ${{ inputs.flake_ref }}
+        run: |
+          python3 scripts/plan_build.py \
+            --variants "$INPUT_VARIANTS" \
+            --systems "$INPUT_SYSTEMS" \
+            --include-experimental "$INPUT_INCLUDE_EXPERIMENTAL" \
+            --tag "$INPUT_TAG" \
+            --flake-repo "$INPUT_FLAKE_REPO" \
+            --flake-ref "$INPUT_FLAKE_REF" \
+            --output "$GITHUB_OUTPUT"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Plan"
+            echo ""
+            echo "| field | value |"
+            echo "|---|---|"
+            echo "| tag | \`${{ steps.plan.outputs.tag }}\` |"
+            echo "| flake | \`${{ steps.plan.outputs.flake_base }}\` |"
+            echo "| variants | ${{ steps.plan.outputs.variant_count }} |"
+            echo "| systems | ${{ steps.plan.outputs.system_count }} |"
+            echo "| build jobs | ${{ steps.plan.outputs.job_count }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: ${{ matrix.system }} / ${{ matrix.variant_id }}
+    needs: plan
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v5
+
+      # Determinate Nix gives us flakes plus a warm /nix store out of the box.
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v23
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Actions cache on the store keeps repeat builds short; without it every
+      # run re-downloads the whole closure.
+      - name: Restore the Nix store from the Actions cache
+        uses: nix-community/cache-nix-action@v6
+        with:
+          primary-key: nix-${{ matrix.system }}-${{ matrix.variant_id }}-${{ hashFiles('systems.json', 'variants.json') }}
+          restore-prefixes-first-match: |
+            nix-${{ matrix.system }}-${{ matrix.variant_id }}-
+            nix-${{ matrix.system }}-
+
+      - name: Build the rootfs tarball
+        env:
+          FLAKE_BASE: ${{ needs.plan.outputs.flake_base }}
+          ATTR_PATH: ${{ matrix.attr_path }}
+        run: |
+          set -euo pipefail
+          echo "flake: ${FLAKE_BASE}#${ATTR_PATH}"
+          nix build \
+            --extra-experimental-features 'nix-command flakes' \
+            --accept-flake-config \
+            --keep-going \
+            --print-build-logs \
+            --out-link ./result \
+            "${FLAKE_BASE}#${ATTR_PATH}"
+
+      - name: Collect and rename the tarball
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+          BUILD_DATE: ${{ needs.plan.outputs.build_date }}
+          FILE: ${{ matrix.file }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          mapfile -t found < <(find ./result -type f -name '*.tar.xz' -print)
+          if [ "${#found[@]}" -ne 1 ]; then
+            echo "expected exactly one .tar.xz under ./result, found ${#found[@]}" >&2
+            find ./result -maxdepth 3 -type f | head -50 >&2
+            exit 1
+          fi
+          target="dist/${FILE}-Droidspaces-rootfs-${ARCH}-${BUILD_DATE}-${TAG}.tar.xz"
+          mv "${found[0]}" "$target"
+          chmod 0644 "$target"
+          ls -lh "$target"
+          sha256sum "$target" | tee dist/SHA256SUMS-${ARCH}-${FILE}.txt
+
+      - name: Upload the tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: rootfs-${{ matrix.arch }}-${{ matrix.variant_id }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Release
+    needs: [plan, build]
+    if: ${{ inputs.publish }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: Download every built tarball
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: rootfs-*
+          merge-multiple: true
+
+      - name: Generate rootfs.json
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+          BUILD_DATE: ${{ needs.plan.outputs.build_date }}
+        run: |
+          set -euo pipefail
+          ls -lh dist
+          python3 scripts/gen_rootfs_json.py \
+            --dist dist \
+            --out rootfs.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --version "$TAG" \
+            --build-date "$BUILD_DATE" \
+            --allow-partial
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          PUBLISH: ${{ inputs.publish }}
+          FLAKE_REPO: ${{ inputs.flake_repo }}
+          FLAKE_REF: ${{ inputs.flake_ref }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mapfile -t assets < <(find dist -type f -name '*.tar.xz' -print | sort)
+          mapfile -t sums < <(find dist -type f -name 'SHA256SUMS-*.txt' -print | sort)
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "no tarballs to release" >&2
+            exit 1
+          fi
+          python3 scripts/write_notes.py \
+            --flake "$FLAKE_REPO" \
+            --ref "$FLAKE_REF" \
+            --run-id "$RUN_ID" \
+            --rootfs-json rootfs.json \
+            --out notes.md
+          cat notes.md >> "$GITHUB_STEP_SUMMARY"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG exists, replacing its assets"
+            gh release upload "$TAG" --clobber "${assets[@]}" "${sums[@]}"
+            gh release edit "$TAG" --notes-file notes.md --latest
+          else
+            gh release create "$TAG" \
+              --title "NixOS rootfs $TAG" \
+              --notes-file notes.md \
+              --latest \
+              "${assets[@]}" "${sums[@]}"
+          fi
+
+      - name: Commit the regenerated rootfs.json
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add rootfs.json
+          if git diff --cached --quiet; then
+            echo "rootfs.json unchanged, nothing to commit"
+            exit 0
+          fi
+          git commit -m "chore: update rootfs.json for release $TAG"
+          for attempt in 1 2 3; do
+            if git push origin "HEAD:${{ github.event.repository.default_branch }}"; then
+              exit 0
+            fi
+            echo "push attempt $attempt failed, rebasing" >&2
+            git pull --rebase origin "${{ github.event.repository.default_branch }}"
+          done
+          echo "could not push rootfs.json after 3 attempts" >&2
+          exit 1
