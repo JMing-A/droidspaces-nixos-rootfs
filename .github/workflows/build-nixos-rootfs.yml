@@ -1,41 +1,41 @@
-name: Build NixOS rootfs
+name: 构建 NixOS rootfs
 
-# Manual only: nothing here runs on push or on a schedule.
+# 仅手动触发：推送和定时都不会跑构建。
 on:
   workflow_dispatch:
     inputs:
       variants:
-        description: "Variants to build: 'all' or comma separated ids (minimal, minimal-tools)"
+        description: "要构建的变体。填 all 或逗号分隔的 id：minimal、minimal-tools"
         required: false
         default: all
         type: string
       systems:
-        description: "Systems to build: 'all' or comma separated (aarch64-linux, x86_64-linux)"
+        description: "要构建的架构。填 all 或逗号分隔：aarch64-linux（手机）、x86_64-linux（电脑/模拟器）"
         required: false
         default: all
         type: string
       include_experimental:
-        description: "Include variants marked experimental in variants.json"
+        description: "是否包含 variants.json 里标了 experimental: true 的变体。不确定就留默认"
         required: false
         default: true
         type: boolean
       publish:
-        description: "Create the GitHub release and commit the regenerated rootfs.json (leave off for a pure build test)"
+        description: "是否创建 Release 并回写 rootfs.json。只想试构建就关掉，产物只留在 Artifacts 里"
         required: false
         default: true
         type: boolean
       tag:
-        description: "Release tag override (vYYYYMMDD-HHMMSS). Empty means 'now, in UTC'"
+        description: "Release 标签。留空则用当前 UTC 时间（vYYYYMMDD-HHMMSS）；也可填 smoke 这类自定义值"
         required: false
         default: ""
         type: string
       flake_repo:
-        description: "Optional flake override (e.g. github:owner/repo). Empty means this repository at the triggering commit"
+        description: "可选：改用其他 flake（如 github:owner/repo）。留空则用本仓库当前 commit"
         required: false
         default: ""
         type: string
       flake_ref:
-        description: "Optional ref inside flake_repo. Empty means the reference's own default"
+        description: "可选：flake_repo 内的分支或标签。留空则用默认分支"
         required: false
         default: ""
         type: string
