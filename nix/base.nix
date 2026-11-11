@@ -33,9 +33,32 @@
   documentation.nixos.enable = lib.mkDefault false;
   documentation.man.enable = lib.mkDefault false;
 
-  # 关掉 nix 自更新与 channel，镜像里用不到，还会在启动时挂 unit。
+  # ----------------------------------------------------------------
+  # Nix：默认启用 flakes
+  # ----------------------------------------------------------------
+  # channel 关掉：镜像里用不到，而且 nix-channel 会在启动时尝试联网。
+  # flakes 不需要 channel，直接从 lock 里的 input 拉。
   nix.channel.enable = lib.mkDefault false;
-  nix.settings.experimental-features = ["nix-command" "flakes"];
+
+  nix.settings = {
+    # 这两项默认是关的，不打开的话 nix build / nix flake 会直接报
+    # "experimental Nix feature 'flakes' is disabled"。
+    experimental-features = ["nix-command" "flakes"];
+
+    # 只有 trusted-users 里的用户才能改 substituters、sandbox、--impure 等
+    # 受限设置。非 trusted 用户跑 nix build 会刷一堆
+    # "ignoring the client-specified setting ..." 警告，改缓存源也会被忽略。
+    # wheel 成员本来就能 sudo 到 root，把他们设为 trusted 不扩大攻击面。
+    trusted-users = ["root" "@wheel"];
+  };
+
+  # 本地构建产生的路径与 substituters 已有路径做硬链接去重，省磁盘。
+  nix.settings.auto-optimise-store = lib.mkDefault true;
+
+  # 让 nix 命令在 PATH 里可用（root 与 nixos 用户都能直接跑 nix build）。
+  # 只放 nix 本身；git 属于「常用工具」，由各变体自己决定要不要装。
+  # 多个模块定义 systemPackages 会自动合并，不需要 mkBefore。
+  environment.systemPackages = [pkgs.nix];
 
   # 注意：这里故意不碰 services.journald。
   # 上游就是因为写了 services.journald.settings，而它 pin 的 nixpkgs 根本没这个选项，
