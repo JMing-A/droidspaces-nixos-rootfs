@@ -1,16 +1,17 @@
-# 最小变体：只要能开机、能登录、能装包。
 { pkgs, ... }: {
-  environment.systemPackages = with pkgs; [
-    bash
-    coreutils
-    findutils
-    gnugrep
-    gnused
-    gawk
-    tar
-    gzip
-    xz
-    less
-    nano
+  # 显式写 pkgs. 前缀：`with pkgs; [ tar ... ]` 中间有一层列表字面量，
+  # 作用域提升不到列表元素上，会报 undefined variable。
+  environment.systemPackages = [
+    pkgs.bash
+    pkgs.coreutils
+    pkgs.findutils
+    pkgs.gnugrep
+    pkgs.gnused
+    pkgs.gawk
+    pkgs.tar
+    pkgs.gzip
+    pkgs.xz
+    pkgs.less
+    pkgs.nano
   ];
 }

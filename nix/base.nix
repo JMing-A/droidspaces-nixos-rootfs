@@ -43,4 +43,8 @@
   # 注意：这里故意不碰 services.journald。
   # 上游就是因为写了 services.journald.settings，而它 pin 的 nixpkgs 根本没这个选项，
   # 导致整个 tarball 求值阶段直接失败。保持默认就好。
+
+  # NixOS 要求显式声明，否则每次求值都打 warning。
+  # 这个值与特性集绑定，不随发行版升级而变，改它需要同时读发布说明。
+  system.stateVersion = lib.mkDefault "25.11";
 }

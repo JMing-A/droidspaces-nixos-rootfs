@@ -1,26 +1,26 @@
-# 最小变体 + 日常运维工具，体积会比 minimal 大几十 MB。
 { pkgs, ... }: {
-  environment.systemPackages = with pkgs; [
-    bash
-    coreutils
-    findutils
-    gnugrep
-    gnused
-    gawk
-    tar
-    gzip
-    xz
-    less
-    nano
+  # 最小镜像的包 + 日常运维工具。
+  environment.systemPackages = [
+    pkgs.bash
+    pkgs.coreutils
+    pkgs.findutils
+    pkgs.gnugrep
+    pkgs.gnused
+    pkgs.gawk
+    pkgs.tar
+    pkgs.gzip
+    pkgs.xz
+    pkgs.less
+    pkgs.nano
     # 以下为 minimal-tools 额外带上的
-    git
-    curl
-    wget
-    procps
-    iproute2
-    iputils
-    which
-    openssh
-    cacert
+    pkgs.git
+    pkgs.curl
+    pkgs.wget
+    pkgs.procps
+    pkgs.iproute2
+    pkgs.iputils
+    pkgs.which
+    pkgs.openssh
+    pkgs.cacert
   ];
 }
