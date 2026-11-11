@@ -104,12 +104,35 @@
       UsePAM = false;
       X11Forwarding = false;
 
-      # sshd_config 的这些指令接受的是空格分隔的单个字符串。
-      # services.openssh.settings 只认 atom（str/int/bool），给列表会报
-      # "is not of type atom"，所以这里用逗号连接。
-      KexAlgorithms = "curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512,diffie-hellman-group14-sha256";
-      Ciphers = "chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr";
-      MACs = "hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,hmac-sha2-256,hmac-sha2-512";
+      # KexAlgorithms / Ciphers / Macs 在 nixpkgs 里被显式声明为
+      # nullOr (list of string)，传字符串会报 not of type list of string。
+      # 注意键名是 Macs，不是 MACs——写成 MACs 会落到未声明的 atom 类型上。
+      # 这三项在 sshd_config 里由 NixOS 自己用逗号拼接。
+      KexAlgorithms = [
+        "curve25519-sha256"
+        "curve25519-sha256@libssh.org"
+        "ecdh-sha2-nistp256"
+        "ecdh-sha2-nistp384"
+        "ecdh-sha2-nistp521"
+        "diffie-hellman-group-exchange-sha256"
+        "diffie-hellman-group16-sha512"
+        "diffie-hellman-group14-sha256"
+      ];
+      Ciphers = [
+        "chacha20-poly1305@openssh.com"
+        "aes256-gcm@openssh.com"
+        "aes128-gcm@openssh.com"
+        "aes256-ctr"
+        "aes192-ctr"
+        "aes128-ctr"
+      ];
+      Macs = [
+        "hmac-sha2-256-etm@openssh.com"
+        "hmac-sha2-512-etm@openssh.com"
+        "umac-128-etm@openssh.com"
+        "hmac-sha2-256"
+        "hmac-sha2-512"
+      ];
     };
   };
 
