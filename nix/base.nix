@@ -104,31 +104,12 @@
       UsePAM = false;
       X11Forwarding = false;
 
-      # 明确启用密钥交换与加密算法，别让新老客户端协商失败。
-      KexAlgorithms = [
-        "curve25519-sha256"
-        "curve25519-sha256@libssh.org"
-        "ecdh-sha2-nistp256"
-        "ecdh-sha2-nistp384"
-        "ecdh-sha2-nistp521"
-        "diffie-hellman-group-exchange-sha256"
-        "diffie-hellman-group16-sha512"
-        "diffie-hellman-group14-sha256"
-      ];
-      Ciphers = [
-        "chacha20-poly1305@openssh.com"
-        "aes256-gcm@openssh.com"
-        "aes128-gcm@openssh.com"
-        "aes256-ctr"
-        "aes192-ctr"
-        "aes128-ctr"
-      ];
-      MACs = [
-        "hmac-sha2-256-etm@openssh.com"
-        "hmac-sha2-512-etm@openssh.com"
-        "hmac-sha2-256"
-        "hmac-sha2-512"
-      ];
+      # sshd_config 的这些指令接受的是空格分隔的单个字符串。
+      # services.openssh.settings 只认 atom（str/int/bool），给列表会报
+      # "is not of type atom"，所以这里用逗号连接。
+      KexAlgorithms = "curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512,diffie-hellman-group14-sha256";
+      Ciphers = "chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr";
+      MACs = "hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,hmac-sha2-256,hmac-sha2-512";
     };
   };
 
