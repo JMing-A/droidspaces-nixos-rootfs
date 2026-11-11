@@ -74,6 +74,27 @@
   services.openssh = {
     enable = true;
     ports = [22];
+
+    # 固定 host key，且首启即生成。
+    #
+    # 默认值（nixos-unstable）带 mldsa44-ed25519 这种后量子混合密钥，很多
+    # 安卓端 SSH 客户端不认，握手会直接断。这里只留 RSA + ed25519，
+    # 并显式列出而不是依赖默认值，避免上游改默认后又悄悄坏掉。
+    hostKeys = [
+      {
+        path = "/etc/ssh/ssh_host_ed25519_key";
+        type = "ed25519";
+      }
+      {
+        path = "/etc/ssh/ssh_host_rsa_key";
+        type = "rsa";
+        bits = 4096;
+      }
+    ];
+    # 镜像里 /etc/ssh 是空的，必须让 sshd-keygen 在开机时自己生成，
+    # 否则 sshd 找不到 HostKey 会直接退出，表现就是「端口连不上」。
+    generateHostKeys = true;
+
     # 容器里没有 PAM，也不接 ldap/sss，用原生 shadow 密码校验就行。
     settings = {
       PasswordAuthentication = true;
@@ -82,6 +103,32 @@
       KbdInteractiveAuthentication = false;
       UsePAM = false;
       X11Forwarding = false;
+
+      # 明确启用密钥交换与加密算法，别让新老客户端协商失败。
+      KexAlgorithms = [
+        "curve25519-sha256"
+        "curve25519-sha256@libssh.org"
+        "ecdh-sha2-nistp256"
+        "ecdh-sha2-nistp384"
+        "ecdh-sha2-nistp521"
+        "diffie-hellman-group-exchange-sha256"
+        "diffie-hellman-group16-sha512"
+        "diffie-hellman-group14-sha256"
+      ];
+      Ciphers = [
+        "chacha20-poly1305@openssh.com"
+        "aes256-gcm@openssh.com"
+        "aes128-gcm@openssh.com"
+        "aes256-ctr"
+        "aes192-ctr"
+        "aes128-ctr"
+      ];
+      MACs = [
+        "hmac-sha2-256-etm@openssh.com"
+        "hmac-sha2-512-etm@openssh.com"
+        "hmac-sha2-256"
+        "hmac-sha2-512"
+      ];
     };
   };
 
