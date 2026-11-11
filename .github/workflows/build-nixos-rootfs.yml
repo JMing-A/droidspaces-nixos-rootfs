@@ -21,14 +21,9 @@ on:
         options:
           - "全部架构"
           - "aarch64-linux（手机 / ARM）"
-          - "x86_64-linux（电脑 / 模拟器）"
+          - "x86_64-linux（电脑 / 模拟器，默认不构建）"
       include_experimental:
         description: "是否连 experimental: true 的变体一起构建。不确定就保持 true"
-        required: true
-        default: true
-        type: boolean
-      publish:
-        description: "是否创建 Release 并回写 rootfs.json。只想试构建就选 false，产物只留在 Artifacts"
         required: true
         default: true
         type: boolean
@@ -207,8 +202,8 @@ jobs:
 
   release:
     name: Release
+    # No condition: if every build job succeeded, publishing is not optional.
     needs: [plan, build]
-    if: ${{ inputs.publish }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -242,7 +237,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.plan.outputs.tag }}
-          PUBLISH: ${{ inputs.publish }}
           FLAKE_REPO: ${{ inputs.flake_repo }}
           FLAKE_REF: ${{ inputs.flake_ref }}
           FLAKE_BASE: ${{ needs.plan.outputs.flake_base }}
@@ -260,6 +254,7 @@ jobs:
           python3 scripts/write_notes.py \
             --flake "$FLAKE_BASE" \
             --ref "$FLAKE_REF" \
+            --repo "$GITHUB_REPOSITORY" \
             --run-id "$RUN_ID" \
             --rootfs-json rootfs.json \
             --out notes.md

@@ -138,6 +138,11 @@ def main() -> int:
     )
     parser.add_argument("--tag", default="", help="release tag override, vYYYYMMDD-HHMMSS")
     parser.add_argument("--include-experimental", default="true", help="'false' to skip experimental variants")
+    parser.add_argument(
+        "--include-disabled-systems",
+        default="false",
+        help="'true' to also build systems marked enabled: false",
+    )
     parser.add_argument("--output", type=Path, required=True, help="path written in GITHUB_OUTPUT format")
     args = parser.parse_args()
 
@@ -145,6 +150,14 @@ def main() -> int:
     all_systems = load(REPO_ROOT / "systems.json")
     if not isinstance(all_variants, list) or not isinstance(all_systems, dict):
         fail("variants.json must be a list and systems.json an object")
+
+    # `enabled: false` keeps a system documented but out of the default build.
+    # x86_64 is disabled so a normal run only costs one aarch64 runner.
+    include_disabled = args.include_disabled_systems.strip().lower() == "true"
+    if not include_disabled:
+        all_systems = {k: v for k, v in all_systems.items() if v.get("enabled", True)}
+        if not all_systems:
+            fail("systems.json has no enabled systems")
 
     include_experimental = args.include_experimental.strip().lower() != "false"
     if not include_experimental:
