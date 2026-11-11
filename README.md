@@ -70,20 +70,24 @@ Droidspaces 自己的 rootfs 构建仓库曾经在 CI 里跑过 NixOS，后来�
 
 | 参数 | 默认值 | 说明 |
 |---|---|---|
-| `variants` | `all` | 要构建的变体。填 `all`，或逗号分隔的 id，如 `minimal`、`minimal,minimal-tools` |
-| `systems` | `all` | 目标架构。填 `all`，或 `aarch64-linux` / `x86_64-linux` |
-| `include_experimental` | `true` | 是否包含 `variants.json` 里标了 `experimental: true` 的变体 |
-| `publish` | `true` | 关掉就只构建、只留 artifact，**不建 Release、不改 `rootfs.json`**。调试构建用 |
-| `tag` | 空 | Release 标签。空则用当前 UTC 时间 `vYYYYMMDD-HHMMSS`；填 `smoke` 这类自定义值也可以 |
-| `flake_repo` | 空 | 覆盖 flake 来源。空则用**本仓库当前 commit** |
-| `flake_ref` | 空 | 配合 `flake_repo` 用的分支/标签。空则用默认分支 |
+| `variant` | 全部变体 | **下拉选择**：全部变体 / minimal 最小镜像 / minimal-tools 最小镜像 + 常用工具 |
+| `system` | 全部架构 | **下拉选择**：全部架构 / aarch64-linux（手机）/ x86_64-linux（电脑·模拟器） |
+| `include_experimental` | `true` | 是否连 `experimental: true` 的变体一起构建 |
+| `publish` | `true` | 是否创建 Release 并回写 `rootfs.json`；选 false 只留 Artifacts |
+| `tag` | 空 | Release 标签，留空自动用 UTC 时间 `vYYYYMMDD-HHMMSS` |
+| `flake_repo` | 空 | 高级：改用其他 flake。留空用本仓库当前 commit |
+| `flake_ref` | 空 | 高级：`flake_repo` 内的分支或标签。留空用默认分支 |
+
+`variant` 和 `system` 是**下拉框**，不再是手填文本，所以不会出现拼错 id 导致矩阵为空的情况。
+下拉标签的机器键取标签开头的 ASCII 段（`minimal-tools 最小镜像 + 常用工具` → `minimal-tools`），
+解析逻辑在 `scripts/plan_build.py` 的 `normalize_choice()`。
 
 ### 只想试一下构建能不能过
 
 ```
-variants = minimal
-systems  = aarch64-linux
-publish  = false
+variant = minimal 最小镜像
+system  = aarch64-linux（手机 / ARM）
+publish = false
 ```
 
 这样只跑 1 个 job，不产出 Release，也不会把 `rootfs.json` 覆盖成只有 1 条。

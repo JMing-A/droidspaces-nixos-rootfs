@@ -4,38 +4,46 @@ name: 构建 NixOS rootfs
 on:
   workflow_dispatch:
     inputs:
-      variants:
-        description: "要构建的变体。填 all 或逗号分隔的 id：minimal、minimal-tools"
-        required: false
-        default: all
-        type: string
-      systems:
-        description: "要构建的架构。填 all 或逗号分隔：aarch64-linux（手机）、x86_64-linux（电脑/模拟器）"
-        required: false
-        default: all
-        type: string
+      variant:
+        description: "要构建的变体。下拉选择；选“全部变体”就一次构建 variants.json 里的每一条"
+        required: true
+        default: "全部变体"
+        type: choice
+        options:
+          - "全部变体"
+          - "minimal 最小镜像"
+          - "minimal-tools 最小镜像 + 常用工具"
+      system:
+        description: "要构建的架构。下拉选择；不确应选“全部架构”，手机选 aarch64"
+        required: true
+        default: "全部架构"
+        type: choice
+        options:
+          - "全部架构"
+          - "aarch64-linux（手机 / ARM）"
+          - "x86_64-linux（电脑 / 模拟器）"
       include_experimental:
-        description: "是否包含 variants.json 里标了 experimental: true 的变体。不确定就留默认"
-        required: false
+        description: "是否连 experimental: true 的变体一起构建。不确定就保持 true"
+        required: true
         default: true
         type: boolean
       publish:
-        description: "是否创建 Release 并回写 rootfs.json。只想试构建就关掉，产物只留在 Artifacts 里"
-        required: false
+        description: "是否创建 Release 并回写 rootfs.json。只想试构建就选 false，产物只留在 Artifacts"
+        required: true
         default: true
         type: boolean
       tag:
-        description: "Release 标签。留空则用当前 UTC 时间（vYYYYMMDD-HHMMSS）；也可填 smoke 这类自定义值"
+        description: "Release 标签（可空）。留空自动用 UTC 时间 vYYYYMMDD-HHMMSS"
         required: false
         default: ""
         type: string
       flake_repo:
-        description: "可选：改用其他 flake（如 github:owner/repo）。留空则用本仓库当前 commit"
+        description: "高级：改用其他 flake（如 github:owner/repo）。留空用本仓库当前 commit"
         required: false
         default: ""
         type: string
       flake_ref:
-        description: "可选：flake_repo 内的分支或标签。留空则用默认分支"
+        description: "高级：flake_repo 内的分支或标签。留空用默认分支"
         required: false
         default: ""
         type: string
@@ -68,8 +76,8 @@ jobs:
       - name: Resolve tag and build matrix
         id: plan
         env:
-          INPUT_VARIANTS: ${{ inputs.variants }}
-          INPUT_SYSTEMS: ${{ inputs.systems }}
+          INPUT_VARIANT: ${{ inputs.variant }}
+          INPUT_SYSTEM: ${{ inputs.system }}
           INPUT_INCLUDE_EXPERIMENTAL: ${{ inputs.include_experimental }}
           INPUT_TAG: ${{ inputs.tag }}
           INPUT_FLAKE_REPO: ${{ inputs.flake_repo }}
@@ -78,8 +86,8 @@ jobs:
           # GITHUB_REPOSITORY / GITHUB_SHA are what plan_build.py falls back to
           # when flake_repo is empty: the flake under test is this repository.
           python3 scripts/plan_build.py \
-            --variants "$INPUT_VARIANTS" \
-            --systems "$INPUT_SYSTEMS" \
+            --variant "$INPUT_VARIANT" \
+            --system "$INPUT_SYSTEM" \
             --include-experimental "$INPUT_INCLUDE_EXPERIMENTAL" \
             --tag "$INPUT_TAG" \
             --flake-repo "$INPUT_FLAKE_REPO" \

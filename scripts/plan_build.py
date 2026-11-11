@@ -17,6 +17,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+# Dropdown labels that mean "everything". Kept in sync with the workflow options.
+ALL_LABELS = {"全部变体", "全部架构"}
+
 
 def fail(message: str) -> "NoReturn":
     print(f"error: {message}", file=sys.stderr)
@@ -32,19 +35,39 @@ def load(path: Path):
         fail(f"{path} is not valid JSON: {exc}")
 
 
-def select(items: list, selector: str, label: str, key: str) -> list:
-    selector = (selector or "all").strip()
-    if selector == "all":
+def normalize_choice(value: str) -> str:
+    """Reduce a workflow_dispatch choice label to its machine key.
+
+    The workflow presents friendly Chinese labels, e.g.
+    "minimal-tools 最小镜像 + 常用工具" or "aarch64-linux（手机 / ARM）".
+    The machine key is the leading ASCII token: everything up to the first
+    space or full-width bracket. "全部变体" / "全部架构" mean "all".
+    """
+    text = (value or "").strip()
+    if not text:
+        return "all"
+    if text in ALL_LABELS or text.lower() == "all":
+        return "all"
+    key = re.split(r"[\s\uff08(]", text, maxsplit=1)[0].strip()
+    return key or "all"
+
+
+def select(items: list, choice: str, label: str, key: str) -> list:
+    """Pick entries from items by a choice label.
+
+    Only single selection is supported now that the workflow uses a dropdown,
+    so an unknown label is a hard error rather than a silent fallback.
+    """
+    wanted = normalize_choice(choice)
+    if wanted == "all":
         return items
-    wanted = [part.strip() for part in selector.split(",") if part.strip()]
     known = {item[key] for item in items}
-    unknown = [name for name in wanted if name not in known]
-    if unknown:
-        fail(f"unknown {label}: {', '.join(unknown)} (known: {', '.join(sorted(known))})")
-    chosen = [item for item in items if item[key] in wanted]
-    if not chosen:
-        fail(f"{label} selection '{selector}' matched nothing")
-    return chosen
+    if wanted not in known:
+        fail(
+            "unknown %s '%s' (recognised: %s). Known values: %s"
+            % (label, choice, wanted, ", ".join(sorted(known)))
+        )
+    return [item for item in items if item[key] == wanted]
 
 
 def default_flake_reference() -> str:
@@ -101,8 +124,8 @@ def join_flake(repo: str, ref: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--variants", default="all", help="'all' or comma separated variant ids")
-    parser.add_argument("--systems", default="all", help="'all' or comma separated systems")
+    parser.add_argument("--variant", default="all", help="dropdown label or a variant id; 'all' builds every variant")
+    parser.add_argument("--system", default="all", help="dropdown label or a system name; 'all' builds every system")
     parser.add_argument(
         "--flake-repo",
         default="",
@@ -127,11 +150,11 @@ def main() -> int:
     if not include_experimental:
         all_variants = [v for v in all_variants if not v.get("experimental")]
 
-    variants = select(all_variants, args.variants, "variants", "id")
+    variants = select(all_variants, args.variant, "variant", "id")
     systems = select(
         [dict(meta, system=name) for name, meta in all_systems.items()],
-        args.systems,
-        "systems",
+        args.system,
+        "system",
         "system",
     )
 
