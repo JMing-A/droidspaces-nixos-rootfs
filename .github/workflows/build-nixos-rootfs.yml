@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       variants:
-        description: "Variants to build: 'all' or comma separated ids (minimal, minimal-v257, minimal-pinned-v257, minimal-v259, finix-experimental)"
+        description: "Variants to build: 'all' or comma separated ids (minimal, minimal-tools)"
         required: false
         default: all
         type: string
@@ -30,14 +30,14 @@ on:
         default: ""
         type: string
       flake_repo:
-        description: "Flake holding the NixOS rootfs definitions"
+        description: "Optional flake override (e.g. github:owner/repo). Empty means this repository at the triggering commit"
         required: false
-        default: github:ravindu644/Droidspaces-OSS
+        default: ""
         type: string
       flake_ref:
-        description: "Ref inside the flake repo"
+        description: "Optional ref inside flake_repo. Empty means the reference's own default"
         required: false
-        default: main
+        default: ""
         type: string
 
 concurrency:
@@ -75,6 +75,8 @@ jobs:
           INPUT_FLAKE_REPO: ${{ inputs.flake_repo }}
           INPUT_FLAKE_REF: ${{ inputs.flake_ref }}
         run: |
+          # GITHUB_REPOSITORY / GITHUB_SHA are what plan_build.py falls back to
+          # when flake_repo is empty: the flake under test is this repository.
           python3 scripts/plan_build.py \
             --variants "$INPUT_VARIANTS" \
             --systems "$INPUT_SYSTEMS" \
@@ -139,6 +141,9 @@ jobs:
             --print-build-logs \
             --out-link ./result \
             "${FLAKE_BASE}#${ATTR_PATH}"
+          echo "--- result ---"
+          ls -ld ./result
+          echo "store path: $(readlink -f ./result)"
 
       - name: Collect and rename the tarball
         env:
@@ -149,17 +154,39 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          mapfile -t found < <(find ./result -type f -name '*.tar.xz' -print)
+
+          # `nix build --out-link ./result` leaves a symlink pointing into
+          # /nix/store, and plain `find ./result -type f` does NOT descend into a
+          # symlink given as its starting point, so the tarball is invisible.
+          # -L makes find follow it. Both the real files and the symlinks are
+          # printed on failure so a wrong attr_path is easy to diagnose.
+          mapfile -t found < <(find -L ./result -maxdepth 3 -type f -name '*.tar.xz' -print | sort)
           if [ "${#found[@]}" -ne 1 ]; then
             echo "expected exactly one .tar.xz under ./result, found ${#found[@]}" >&2
-            find ./result -maxdepth 3 -type f | head -50 >&2
+            echo "--- find -L ./result -maxdepth 3 ---" >&2
+            find -L ./result -maxdepth 3 -print >&2 || true
             exit 1
           fi
+
+          source_path="${found[0]}"
+          case "$source_path" in
+            ./result/tarball/*.tar.xz|result/tarball/*.tar.xz) ;;
+            *)
+              echo "tarball is not under result/tarball: $source_path" >&2
+              echo "--- find -L ./result -maxdepth 3 ---" >&2
+              find -L ./result -maxdepth 3 -print >&2 || true
+              exit 1
+              ;;
+          esac
+
           target="dist/${FILE}-Droidspaces-rootfs-${ARCH}-${BUILD_DATE}-${TAG}.tar.xz"
-          mv "${found[0]}" "$target"
+          # Copy, never move: the source lives in the Nix store and moving it
+          # would corrupt the store for every later step of the job.
+          cp -L "$source_path" "$target"
           chmod 0644 "$target"
+          echo "--- ${target} ---"
           ls -lh "$target"
-          sha256sum "$target" | tee dist/SHA256SUMS-${ARCH}-${FILE}.txt
+          sha256sum "$target" | tee "dist/SHA256SUMS-${ARCH}-${FILE}.txt"
 
       - name: Upload the tarball
         uses: actions/upload-artifact@v4
@@ -209,6 +236,7 @@ jobs:
           PUBLISH: ${{ inputs.publish }}
           FLAKE_REPO: ${{ inputs.flake_repo }}
           FLAKE_REF: ${{ inputs.flake_ref }}
+          FLAKE_BASE: ${{ needs.plan.outputs.flake_base }}
           RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -218,8 +246,10 @@ jobs:
             echo "no tarballs to release" >&2
             exit 1
           fi
+          # Default source is this repo at the triggering commit; report that
+          # rather than the empty override inputs.
           python3 scripts/write_notes.py \
-            --flake "$FLAKE_REPO" \
+            --flake "$FLAKE_BASE" \
             --ref "$FLAKE_REF" \
             --run-id "$RUN_ID" \
             --rootfs-json rootfs.json \

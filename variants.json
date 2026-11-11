@@ -1,52 +1,22 @@
 [
   {
     "id": "minimal",
-    "name": "NixOS - Minimal (latest systemd)",
-    "file": "NixOS-Minimal-Systemd-latest-Kernel-5.10-and-up",
+    "name": "NixOS - 最小镜像",
+    "file": "NixOS-Minimal-Kernel-5.10-and-up",
     "distro": "NixOS",
-    "description": "Minimal NixOS rootfs with basic packages and the systemd version pinned in the selected nixpkgs input. Runs on Kernel 5.10 and above only.",
-    "output": "nixosDroidspacesTarballs",
+    "description": "自带 systemd、能开机登录的最小 NixOS rootfs，只装了 bash、coreutils、tar、xz、nano 这类必备工具。适合只要一个干净系统、其余包装自己装。要求内核 5.10 及以上。",
+    "output": "nixosRootfsTarballs",
     "attr": "minimal",
     "experimental": false
   },
   {
-    "id": "minimal-v257",
-    "name": "NixOS - Minimal (systemd v257)",
-    "file": "NixOS-Minimal-Systemd-v257.9",
+    "id": "minimal-tools",
+    "name": "NixOS - 最小镜像（带常用工具）",
+    "file": "NixOS-Minimal-Tools-Kernel-5.10-and-up",
     "distro": "NixOS",
-    "description": "Minimal NixOS rootfs with basic packages, built against the nixpkgs input carrying systemd v257. Runs on Kernel 5.10 and above only.",
-    "output": "nixosDroidspacesTarballs",
-    "attr": "minimal-with-systemd-v257",
+    "description": "在最小镜像基础上多装了 git、curl、wget、ps、ip、ping、ssh 等日常运维工具，开箱就能拉代码、装东西、查网络。体积比最小镜像大几十 MB。要求内核 5.10 及以上。",
+    "output": "nixosRootfsTarballs",
+    "attr": "minimal-tools",
     "experimental": false
-  },
-  {
-    "id": "minimal-pinned-v257",
-    "name": "NixOS - Minimal (pinned systemd v257)",
-    "file": "NixOS-Minimal-Systemd-v257.9-pinned",
-    "distro": "NixOS",
-    "description": "Minimal NixOS rootfs with basic packages, using the default nixpkgs input with systemd overridden to v257 and the unwanted container units disabled.",
-    "output": "nixosDroidspacesTarballs",
-    "attr": "minimal-with-pinned-systemd-v257",
-    "experimental": false
-  },
-  {
-    "id": "minimal-v259",
-    "name": "NixOS - Minimal (systemd v259)",
-    "file": "NixOS-Minimal-Systemd-v259",
-    "distro": "NixOS",
-    "description": "Minimal NixOS rootfs with basic packages, built against the nixpkgs input carrying systemd v259. Upstream CI dropped this variant after it failed to build, so treat it as experimental.",
-    "output": "nixosDroidspacesTarballs",
-    "attr": "minimal-with-systemd-v259",
-    "experimental": true
-  },
-  {
-    "id": "finix-experimental",
-    "name": "finix - Experimental",
-    "file": "NixOS-Minimal-Finix-Experimental",
-    "distro": "NixOS",
-    "description": "Experimental Finix NixOS rootfs with basic packages, built from the finix community flake modules.",
-    "output": "finixDroidspacesTarballs",
-    "attr": "experimental",
-    "experimental": true
   }
 ]

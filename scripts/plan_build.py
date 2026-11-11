@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Turn the workflow_dispatch inputs into a build plan.
 
-Writes GitHub Actions outputs (tag, build_date, matrix, counts) so the build job
-can consume the matrix directly with fromJSON().
+Writes GitHub Actions outputs (tag, build_date, flake_base, matrix, counts) so the
+build job can consume the matrix directly with fromJSON().
 """
 
 from __future__ import annotations
@@ -47,12 +47,65 @@ def select(items: list, selector: str, label: str, key: str) -> list:
     return chosen
 
 
+def default_flake_reference() -> str:
+    """github:<owner>/<repo>/<sha>.
+
+    Pinning the commit that triggered the run keeps a build reproducible: later
+    pushes cannot change what this run actually built.
+    """
+    repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    sha = os.environ.get("GITHUB_SHA", "").strip()
+    if not repo or not sha:
+        fail(
+            "flake_repo is empty and GITHUB_REPOSITORY/GITHUB_SHA are not set; "
+            "pass --flake-repo (and optionally --flake-ref) explicitly"
+        )
+    return f"github:{repo}/{sha}"
+
+
+def join_flake(repo: str, ref: str) -> str:
+    """Attach an optional ref to a flake reference prefix.
+
+    github:owner/repo       -> ref appended, or left alone when ref is empty
+    github:owner/repo/<rev> -> already pinned, the caller's ref is ignored
+    path:/some/dir, git+... -> ref appended as ?ref=<ref>
+    """
+    repo = repo.strip().rstrip("/")
+    ref = ref.strip()
+    if not repo:
+        fail("flake repo must not be empty")
+    if repo.startswith("github:"):
+        segments = [part for part in repo[len("github:") :].split("/") if part]
+        if len(segments) < 2:
+            fail(f"flake repo '{repo}' must look like github:owner/repo")
+        if len(segments) > 2:
+            if ref:
+                print(
+                    f"note: '{repo}' already pins a ref, ignoring flake_ref '{ref}'",
+                    file=sys.stderr,
+                )
+            return repo
+        return f"{repo}/{ref}" if ref else repo
+    if not ref:
+        return repo
+    separator = "&" if "?" in repo else "?"
+    return f"{repo}{separator}ref={ref}"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--variants", default="all", help="'all' or comma separated variant ids")
     parser.add_argument("--systems", default="all", help="'all' or comma separated systems")
-    parser.add_argument("--flake-repo", required=True, help="flake reference prefix, e.g. github:owner/repo")
-    parser.add_argument("--flake-ref", default="main", help="ref within the flake repo")
+    parser.add_argument(
+        "--flake-repo",
+        default="",
+        help="flake reference prefix, e.g. github:owner/repo; empty means this repo at GITHUB_SHA",
+    )
+    parser.add_argument(
+        "--flake-ref",
+        default="",
+        help="ref inside the flake repo; empty keeps whatever the repo reference implies",
+    )
     parser.add_argument("--tag", default="", help="release tag override, vYYYYMMDD-HHMMSS")
     parser.add_argument("--include-experimental", default="true", help="'false' to skip experimental variants")
     parser.add_argument("--output", type=Path, required=True, help="path written in GITHUB_OUTPUT format")
@@ -88,11 +141,20 @@ def main() -> int:
     head = tag[1:].split("-")[0]
     build_date = head if re.fullmatch(r"\d{8}", head) else datetime.now(timezone.utc).strftime("%Y%m%d")
 
-    flake_repo = args.flake_repo.strip().rstrip("/")
-    flake_ref = (args.flake_ref or "main").strip()
-    # github:owner/repo already defaults to the default branch, so only pin the
-    # ref when the caller asked for something other than main.
-    base = f"{flake_repo}/{flake_ref}" if flake_ref not in ("", "main") else flake_repo
+    # The flake lives in this repository, so the default source is this commit.
+    flake_repo = args.flake_repo.strip()
+    flake_ref = args.flake_ref.strip()
+    if not flake_repo:
+        if flake_ref:
+            print(
+                f"note: flake_repo is empty, ignoring flake_ref '{flake_ref}'",
+                file=sys.stderr,
+            )
+        base = default_flake_reference()
+        effective_ref = base.rsplit("/", 1)[-1]
+    else:
+        base = join_flake(flake_repo, flake_ref)
+        effective_ref = flake_ref
 
     matrix = {"include": []}
     for system in systems:
@@ -108,7 +170,8 @@ def main() -> int:
                     "output": variant["output"],
                     "attr": variant["attr"],
                     "experimental": bool(variant.get("experimental")),
-                    "attr_path": f"legacyPackages.{system['system']}.{variant['output']}.{system['system']}.{variant['attr']}",
+                    # Single level: legacyPackages.<system>.<output>.<attr>.
+                    "attr_path": f"legacyPackages.{system['system']}.{variant['output']}.{variant['attr']}",
                 }
             )
 
@@ -116,7 +179,7 @@ def main() -> int:
         "tag": tag,
         "build_date": build_date,
         "flake_base": base,
-        "flake_ref": flake_ref,
+        "flake_ref": effective_ref,
         "matrix": json.dumps(matrix, separators=(",", ":")),
         "job_count": str(len(matrix["include"])),
         "variant_count": str(len(variants)),
@@ -129,7 +192,7 @@ def main() -> int:
         for key, value in lines.items():
             handle.write(f"{key}={value}\n")
 
-    print(f"tag={tag} build_date={build_date} jobs={len(matrix['include'])}")
+    print(f"tag={tag} build_date={build_date} flake_base={base} jobs={len(matrix['include'])}")
     for entry in matrix["include"]:
         print(f"  {entry['system']:<14} {entry['variant_id']:<20} {entry['attr_path']}")
     return 0
