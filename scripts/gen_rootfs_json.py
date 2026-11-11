@@ -126,10 +126,19 @@ def lint(variants: list[dict], systems: dict) -> int:
         flag = "experimental" if variant.get("experimental") else "stable"
         print(f"  - {variant['id']:<20} {flag:<12} {variant['output']}.{variant['attr']}")
     print(f"systems:  {len(systems)}")
+    enabled = []
     for system, meta in systems.items():
-        print(f"  - {system:<14} arch={meta['arch']:<8} runner={meta['runner']}")
-    total = len(variants) * len(systems)
-    print(f"entries per release: {total} ({total - len([v for v in variants if v.get('experimental')]) * len(systems)} stable)")
+        state = "on " if meta.get("enabled", True) else "off"
+        print(f"  - {system:<14} [{state}] arch={meta['arch']:<8} runner={meta['runner']}")
+        if meta.get("enabled", True):
+            enabled.append(system)
+
+    # Only enabled systems get built, so only they end up in rootfs.json.
+    experimental = len([v for v in variants if v.get("experimental")])
+    total = len(variants) * len(enabled)
+    stable = total - experimental * len(enabled)
+    print(f"enabled systems: {len(enabled)} of {len(systems)}")
+    print(f"entries per release: {total} ({stable} stable, {total - stable} experimental)")
     return 0
 
 
