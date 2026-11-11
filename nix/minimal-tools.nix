@@ -7,7 +7,7 @@
     pkgs.gnugrep
     pkgs.gnused
     pkgs.gawk
-    pkgs.tar
+    pkgs.gnutar
     pkgs.gzip
     pkgs.xz
     pkgs.less
