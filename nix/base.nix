@@ -95,14 +95,26 @@
     # 否则 sshd 找不到 HostKey 会直接退出，表现就是「端口连不上」。
     generateHostKeys = true;
 
-    # 容器里没有 PAM，也不接 ldap/sss，用原生 shadow 密码校验就行。
+    # 认证走 PAM（见下方 UsePAM 说明），这样 passwd 改的密码能直接用于 SSH。
     settings = {
       PasswordAuthentication = true;
       PermitRootLogin = "yes";
-      # 没有 PAM 时不走 kbd-interactive，避免登录挂住。
-      KbdInteractiveAuthentication = false;
-      UsePAM = false;
       X11Forwarding = false;
+      # 关掉 kbd-interactive：PAM 开启后它会和 password 认证重复提示，
+      # 客户端上表现为连点两次密码框。
+      KbdInteractiveAuthentication = false;
+
+      # UsePAM = true（原来是 false）。
+      #
+      # 关闭 PAM 时 sshd 直接用 crypt(3) 校验 /etc/shadow，只认固定几种哈希。
+      # 而 passwd 在新版 libxcrypt 下写的是 yescrypt（$y$），走不通这条路；
+      # 表现就是「密码明明改对了却登录不了，日志只有 Failed password」。
+      # 打开 PAM 后由 pam_unix 校验，yescrypt / SHA-512 都正常，
+      # passwd 改的密码也能立刻用于 SSH。
+      #
+      # nixpkgs 会在 UsePAM = true 时自动生成 security.pam.services.sshd
+      # （含 unixAuth），并把 pam 依赖带进闭包，这里不需要额外声明。
+      UsePAM = true;
 
       # KexAlgorithms / Ciphers / Macs 在 nixpkgs 里被显式声明为
       # nullOr (list of string)，传字符串会报 not of type list of string。
@@ -149,7 +161,10 @@
     createHome = true;
     # 密码以 SHA-512 crypt 形式固化。NixOS 默认就把哈希写进 /etc/shadow，
     # 不会出现明文密码落在 nix store 里的情况。
-    hashedPassword = "$6$nixosrootfs$BEVYiYJfGKGS2sV3x4iae7Wj9dWkgw.JSGwmJSG2ugZB2I7LHn4nh3/TOeVEQWlyHF0nJIyyxqB2i7xwUzltr1";
+    # SHA-512 crypt of the shipped default password. Written on every
+    # activation, so a `passwd` change is reverted on the next boot by design:
+    # the image password is reproducible, not per-container state.
+    hashedPassword = "$6$nixosrootfs$1kyaswk/G4wkgZzZOSYtIkFAFdtk1UeIpKNwH07LpCtpe8hg4OdfwIkq4C6o8qhr6rVf5gDxjmYCjMinScoXC0";
     # wheel 给 sudo 权限，其余是 Android 内核上真正能用的几个组：
     # aid_inet / aid_net_raw 才能建 socket、发原始包。
     extraGroups = ["wheel" "aid_inet" "aid_net_raw" "input" "video" "tty"];
