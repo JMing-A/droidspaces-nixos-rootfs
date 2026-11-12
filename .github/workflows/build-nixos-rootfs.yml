@@ -59,6 +59,10 @@ jobs:
       build_date: ${{ steps.plan.outputs.build_date }}
       flake_base: ${{ steps.plan.outputs.flake_base }}
       matrix: ${{ steps.plan.outputs.matrix }}
+      matrix_aarch64: ${{ steps.plan.outputs.matrix_ubuntu_24_04_arm }}
+      matrix_x86_64: ${{ steps.plan.outputs.matrix_ubuntu_latest }}
+      has_aarch64: ${{ steps.plan.outputs.has_aarch64 }}
+      has_x86_64: ${{ steps.plan.outputs.has_x86_64 }}
       job_count: ${{ steps.plan.outputs.job_count }}
       variant_count: ${{ steps.plan.outputs.variant_count }}
       system_count: ${{ steps.plan.outputs.system_count }}
@@ -116,11 +120,138 @@ jobs:
   build:
     name: ${{ matrix.system }} / ${{ matrix.variant_id }}
     needs: plan
-    runs-on: ${{ matrix.runner }}
+    # runs-on is a literal per job. It cannot be ${{ matrix.runner }} when the
+    # matrix comes from needs.plan.outputs.matrix: GitHub resolves runs-on
+    # while building the job graph, before any job output exists, and the run
+    # dies with startup_failure before a single job is scheduled.
+    #
+    # aarch64 needs an ARM runner and x86_64 needs an x86 one, so the two
+    # architectures live in separate jobs. The plan job still decides which
+    # variants and whether each job runs at all.
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 350
+    # Skip entirely when the plan produced no aarch64 entries.
+    if: ${{ needs.plan.outputs.has_aarch64 == 'true' }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix_aarch64) }}
+    steps:
+      - uses: actions/checkout@v5
+
+      # Determinate Nix gives us flakes plus a warm /nix store out of the box.
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v23
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Actions cache on the store keeps repeat builds short; without it every
+      # run re-downloads the whole closure.
+      - name: Restore the Nix store from the Actions cache
+        uses: nix-community/cache-nix-action@v6
+        with:
+          primary-key: nix-${{ matrix.system }}-${{ matrix.variant_id }}-${{ hashFiles('systems.json', 'variants.json') }}
+          restore-prefixes-first-match: |
+            nix-${{ matrix.system }}-${{ matrix.variant_id }}-
+            nix-${{ matrix.system }}-
+
+      - name: Build the rootfs tarball
+        env:
+          FLAKE_BASE: ${{ needs.plan.outputs.flake_base }}
+          ATTR_PATH: ${{ matrix.attr_path }}
+        run: |
+          set -euo pipefail
+          echo "flake: ${FLAKE_BASE}#${ATTR_PATH}"
+          nix build \
+            --extra-experimental-features 'nix-command flakes' \
+            --accept-flake-config \
+            --no-write-lock-file \
+            --keep-going \
+            --print-build-logs \
+            --out-link ./result \
+            "${FLAKE_BASE}#${ATTR_PATH}"
+          echo "--- result ---"
+          ls -ld ./result
+          echo "store path: $(readlink -f ./result)"
+
+      - name: Collect and rename the tarball
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+          BUILD_DATE: ${{ needs.plan.outputs.build_date }}
+          FILE: ${{ matrix.file }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          # `nix build --out-link ./result` leaves a symlink pointing into
+          # /nix/store, and plain `find ./result -type f` does NOT descend into a
+          # symlink given as its starting point, so the tarball is invisible.
+          # -L makes find follow it. Both the real files and the symlinks are
+          # printed on failure so a wrong attr_path is easy to diagnose.
+          mapfile -t found < <(find -L ./result -maxdepth 3 -type f -name '*.tar.xz' -print | sort)
+          if [ "${#found[@]}" -ne 1 ]; then
+            echo "expected exactly one .tar.xz under ./result, found ${#found[@]}" >&2
+            echo "--- find -L ./result -maxdepth 3 ---" >&2
+            find -L ./result -maxdepth 3 -print >&2 || true
+            exit 1
+          fi
+
+          source_path="${found[0]}"
+          case "$source_path" in
+            ./result/tarball/*.tar.xz|result/tarball/*.tar.xz) ;;
+            *)
+              echo "tarball is not under result/tarball: $source_path" >&2
+              echo "--- find -L ./result -maxdepth 3 ---" >&2
+              find -L ./result -maxdepth 3 -print >&2 || true
+              exit 1
+              ;;
+          esac
+
+          target="dist/${FILE}-Droidspaces-rootfs-${ARCH}-${BUILD_DATE}-${TAG}.tar.xz"
+          # Copy, never move: the source lives in the Nix store and moving it
+          # would corrupt the store for every later step of the job.
+          cp -L "$source_path" "$target"
+          chmod 0644 "$target"
+          echo "--- ${target} ---"
+          ls -lh "$target"
+          sha256sum "$target" | tee "dist/SHA256SUMS-${ARCH}-${FILE}.txt"
+
+      # Upload straight to the release instead of staging an artifact first.
+      # The old flow moved the same ~200 MiB twice (artifact upload, then
+      # artifact download in the release job, then release upload), which was
+      # the slowest part of the run. Now the tarball is transferred once.
+      #
+      # The release must exist before the parallel build jobs finish, so the
+      # plan job creates an empty one up front. --clobber makes a rerun of the
+      # same tag replace assets rather than fail.
+      - name: Upload the tarball to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(dist/*.tar.xz dist/SHA256SUMS-*.txt)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "nothing to upload" >&2
+            exit 1
+          fi
+          gh release upload "$TAG" --clobber "${files[@]}"
+
+  build-x86:
+    name: ${{ matrix.system }} / ${{ matrix.variant_id }}
+    needs: plan
+    # See the note on `build`: runs-on cannot depend on a runtime matrix.
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    # x86_64 is disabled by default in systems.json, so this job is usually
+    # skipped rather than cancelled.
+    if: ${{ needs.plan.outputs.has_x86_64 == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix_x86_64) }}
     steps:
       - uses: actions/checkout@v5
 
@@ -226,8 +357,16 @@ jobs:
 
   release:
     name: Release
-    # No condition: if every build job succeeded, publishing is not optional.
-    needs: [plan, build]
+    needs: [plan, build, build-x86]
+    # Publishing is not optional once the builds pass, but a *skipped* build
+    # job (x86_64 disabled) must not count as failure. A plain `needs` list
+    # would treat skip as not-success and drop the release, so assert the two
+    # real outcomes instead: nothing failed, and the aarch64 build ran.
+    if: >-
+      ${{ always()
+          && needs.plan.result == 'success'
+          && needs.build.result == 'success'
+          && (needs.build-x86.result == 'success' || needs.build-x86.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

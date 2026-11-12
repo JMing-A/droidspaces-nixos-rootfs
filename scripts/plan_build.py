@@ -230,6 +230,26 @@ def main() -> int:
         "experimental_count": str(sum(1 for v in variants if v.get("experimental"))),
     }
 
+    # The workflow cannot use one matrix for runs-on: GitHub resolves runs-on
+    # while building the job graph, before any job output exists, so a matrix
+    # derived from needs.<job>.outputs makes the whole run fail at startup.
+    # Instead the entries are split per runner, and each job gets a literal
+    # runs-on plus a has_<arch> flag it can gate with `if`.
+    by_runner: dict[str, list[dict]] = {}
+    for entry in matrix["include"]:
+        by_runner.setdefault(entry["runner"], []).append(entry)
+
+    for runner, entries in by_runner.items():
+        # Runner labels contain dots and dashes, which are not valid in an
+        # output name; normalise to underscore form.
+        key = runner.replace(".", "_").replace("-", "_")
+        lines[f"matrix_{key}"] = json.dumps({"include": entries}, separators=(",", ":"))
+
+    # Explicit flags so a job-level `if` never has to compare an empty string.
+    enabled_systems = {entry["system"] for entry in matrix["include"]}
+    lines["has_aarch64"] = "true" if "aarch64-linux" in enabled_systems else "false"
+    lines["has_x86_64"] = "true" if "x86_64-linux" in enabled_systems else "false"
+
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("a", encoding="utf-8") as handle:
         for key, value in lines.items():
