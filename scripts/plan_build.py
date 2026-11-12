@@ -239,11 +239,17 @@ def main() -> int:
     for entry in matrix["include"]:
         by_runner.setdefault(entry["runner"], []).append(entry)
 
-    for runner, entries in by_runner.items():
-        # Runner labels contain dots and dashes, which are not valid in an
-        # output name; normalise to underscore form.
+    # A strategy.matrix with an empty include list is rejected by GitHub, so
+    # every runner we know about gets a slot. When a runner has no work its
+    # matrix carries a single canary entry that `if: false` skips.
+    known_runners = {"ubuntu-24.04-arm": "aarch64-linux", "ubuntu-latest": "x86_64-linux"}
+    for runner in known_runners:
+        entries = by_runner.get(runner) or []
         key = runner.replace(".", "_").replace("-", "_")
-        lines[f"matrix_{key}"] = json.dumps({"include": entries}, separators=(",", ":"))
+        if entries:
+            lines[f"matrix_{key}"] = json.dumps({"include": entries}, separators=(",", ":"))
+        else:
+            lines[f"matrix_{key}"] = json.dumps({"include": [{"skip": True}]}, separators=(",", ":"))
 
     # Explicit flags so a job-level `if` never has to compare an empty string.
     enabled_systems = {entry["system"] for entry in matrix["include"]}

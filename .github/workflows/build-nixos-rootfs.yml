@@ -67,7 +67,11 @@ jobs:
       variant_count: ${{ steps.plan.outputs.variant_count }}
       system_count: ${{ steps.plan.outputs.system_count }}
     steps:
+      # A matrix whose runner has no work carries one {"skip": true} canary
+      # entry: strategy.matrix cannot be empty, so this is how "nothing to do"
+      # is expressed. Every step below is gated on the same condition.
       - uses: actions/checkout@v5
+        if: ${{ !matrix.skip }}
 
       - name: Lint the variant and system tables
         run: python3 scripts/gen_rootfs_json.py --lint
@@ -130,18 +134,25 @@ jobs:
     # variants and whether each job runs at all.
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 350
-    # Skip entirely when the plan produced no aarch64 entries.
-    # Compared as a string because job outputs are always strings.
-    if: needs.plan.outputs.has_aarch64 == 'true'
+    # No if: deliberate. A job-level condition that reads the same output
+    # that feeds strategy.matrix gets evaluated before the matrix resolves,
+    # which silently skips the job and leaves the matrix name unrendered in
+    # the UI. When the plan yields no aarch64 entries the include list is
+    # empty and GitHub creates zero jobs anyway.
     strategy:
       fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.matrix_aarch64) }}
     steps:
+      # A matrix whose runner has no work carries one {"skip": true} canary
+      # entry: strategy.matrix cannot be empty, so this is how "nothing to do"
+      # is expressed. Every step below is gated on the same condition.
       - uses: actions/checkout@v5
+        if: ${{ !matrix.skip }}
 
       # Determinate Nix gives us flakes plus a warm /nix store out of the box.
       - name: Install Nix
+        if: ${{ !matrix.skip }}
         uses: DeterminateSystems/nix-installer-action@v23
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -149,6 +160,7 @@ jobs:
       # Actions cache on the store keeps repeat builds short; without it every
       # run re-downloads the whole closure.
       - name: Restore the Nix store from the Actions cache
+        if: ${{ !matrix.skip }}
         uses: nix-community/cache-nix-action@v6
         with:
           primary-key: nix-${{ matrix.system }}-${{ matrix.variant_id }}-${{ hashFiles('systems.json', 'variants.json') }}
@@ -157,6 +169,7 @@ jobs:
             nix-${{ matrix.system }}-
 
       - name: Build the rootfs tarball
+        if: ${{ !matrix.skip }}
         env:
           FLAKE_BASE: ${{ needs.plan.outputs.flake_base }}
           ATTR_PATH: ${{ matrix.attr_path }}
@@ -176,6 +189,7 @@ jobs:
           echo "store path: $(readlink -f ./result)"
 
       - name: Collect and rename the tarball
+        if: ${{ !matrix.skip }}
         env:
           TAG: ${{ needs.plan.outputs.tag }}
           BUILD_DATE: ${{ needs.plan.outputs.build_date }}
@@ -227,6 +241,7 @@ jobs:
       # plan job creates an empty one up front. --clobber makes a rerun of the
       # same tag replace assets rather than fail.
       - name: Upload the tarball to the release
+        if: ${{ !matrix.skip }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.plan.outputs.tag }}
@@ -246,18 +261,20 @@ jobs:
     # See the note on `build`: runs-on cannot depend on a runtime matrix.
     runs-on: ubuntu-latest
     timeout-minutes: 350
-    # x86_64 is disabled by default in systems.json, so this job is usually
-    # skipped rather than cancelled.
-    if: needs.plan.outputs.has_x86_64 == 'true'
+    # Same reasoning as `build`: no if, an empty matrix means zero jobs.
+    # x86_64 is disabled by default in systems.json, so this normally runs
+    # nothing beyond the skip canary.
     strategy:
       fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.matrix_x86_64) }}
     steps:
       - uses: actions/checkout@v5
+        if: ${{ !matrix.skip }}
 
       # Determinate Nix gives us flakes plus a warm /nix store out of the box.
       - name: Install Nix
+        if: ${{ !matrix.skip }}
         uses: DeterminateSystems/nix-installer-action@v23
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -265,6 +282,7 @@ jobs:
       # Actions cache on the store keeps repeat builds short; without it every
       # run re-downloads the whole closure.
       - name: Restore the Nix store from the Actions cache
+        if: ${{ !matrix.skip }}
         uses: nix-community/cache-nix-action@v6
         with:
           primary-key: nix-${{ matrix.system }}-${{ matrix.variant_id }}-${{ hashFiles('systems.json', 'variants.json') }}
@@ -273,6 +291,7 @@ jobs:
             nix-${{ matrix.system }}-
 
       - name: Build the rootfs tarball
+        if: ${{ !matrix.skip }}
         env:
           FLAKE_BASE: ${{ needs.plan.outputs.flake_base }}
           ATTR_PATH: ${{ matrix.attr_path }}
@@ -292,6 +311,7 @@ jobs:
           echo "store path: $(readlink -f ./result)"
 
       - name: Collect and rename the tarball
+        if: ${{ !matrix.skip }}
         env:
           TAG: ${{ needs.plan.outputs.tag }}
           BUILD_DATE: ${{ needs.plan.outputs.build_date }}
@@ -343,6 +363,7 @@ jobs:
       # plan job creates an empty one up front. --clobber makes a rerun of the
       # same tag replace assets rather than fail.
       - name: Upload the tarball to the release
+        if: ${{ !matrix.skip }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.plan.outputs.tag }}
