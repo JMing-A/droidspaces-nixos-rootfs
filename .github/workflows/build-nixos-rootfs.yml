@@ -131,7 +131,8 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 350
     # Skip entirely when the plan produced no aarch64 entries.
-    if: ${{ needs.plan.outputs.has_aarch64 == 'true' }}
+    # Compared as a string because job outputs are always strings.
+    if: needs.plan.outputs.has_aarch64 == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -247,7 +248,7 @@ jobs:
     timeout-minutes: 350
     # x86_64 is disabled by default in systems.json, so this job is usually
     # skipped rather than cancelled.
-    if: ${{ needs.plan.outputs.has_x86_64 == 'true' }}
+    if: needs.plan.outputs.has_x86_64 == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -362,11 +363,7 @@ jobs:
     # job (x86_64 disabled) must not count as failure. A plain `needs` list
     # would treat skip as not-success and drop the release, so assert the two
     # real outcomes instead: nothing failed, and the aarch64 build ran.
-    if: >-
-      ${{ always()
-          && needs.plan.result == 'success'
-          && needs.build.result == 'success'
-          && (needs.build-x86.result == 'success' || needs.build-x86.result == 'skipped') }}
+    if: always() && needs.plan.result == 'success' && needs.build.result == 'success' && (needs.build-x86.result == 'success' || needs.build-x86.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
