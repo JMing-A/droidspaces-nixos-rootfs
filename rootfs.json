@@ -1,1 +1,26 @@
-[]
+[
+  {
+    "name": "NixOS - 最小镜像",
+    "distro": "NixOS",
+    "description": "自带 systemd、能开机登录的最小 NixOS rootfs，只装了 bash、coreutils、tar、xz、nano 这类必备工具。适合只要一个干净系统、其余包装自己装。要求内核 5.10 及以上。",
+    "architecture": "aarch64",
+    "file": "NixOS-Minimal-Kernel-5.10-and-up",
+    "download_url": "https://github.com/JMing-A/droidspaces-nixos-rootfs/releases/download/v20261112-032210/NixOS-Minimal-Kernel-5.10-and-up-Droidspaces-rootfs-aarch64-20261112-v20261112-032210.tar.xz",
+    "sha256": "7b65df4b495c1514fc4205ed02c492aec0f925180d670ed99085d9c61ac26142",
+    "size_bytes": 220549552,
+    "version": "v20261112-032210",
+    "build_date": "20261112"
+  },
+  {
+    "name": "NixOS - 最小镜像（带常用工具）",
+    "distro": "NixOS",
+    "description": "在最小镜像基础上多装了 git、curl、wget、ps、ip、ping、ssh 等日常运维工具，开箱就能拉代码、装东西、查网络。体积比最小镜像大几十 MB。要求内核 5.10 及以上。",
+    "architecture": "aarch64",
+    "file": "NixOS-Minimal-Tools-Kernel-5.10-and-up",
+    "download_url": "https://github.com/JMing-A/droidspaces-nixos-rootfs/releases/download/v20261112-032210/NixOS-Minimal-Tools-Kernel-5.10-and-up-Droidspaces-rootfs-aarch64-20261112-v20261112-032210.tar.xz",
+    "sha256": "257e459011a17ac567a606ffb6cf7403d0de5206217eb8ebeb341a82bd08ff79",
+    "size_bytes": 238589540,
+    "version": "v20261112-032210",
+    "build_date": "20261112"
+  }
+]
